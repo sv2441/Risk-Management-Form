@@ -1,0 +1,4 @@
+streamlit
+pyairtable
+python-dotenv
+pandas
