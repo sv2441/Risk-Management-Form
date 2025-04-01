@@ -654,7 +654,7 @@ if st.session_state.get('connected', False):
                                 # Include risk score in change notes if calculated
                                 if 'risk_score' in st.session_state and st.session_state['risk_score']:
                                     risk_score = st.session_state['risk_score']
-                                    score_note = f"Risk Score: {risk_score} (calculated using formula: Severity × Likelihood × Detectability)"
+                                    score_note = f"Risk Score: {risk_score}"
                                     
                                     # Append to existing notes or create new
                                     if data["fldmpEa117ZHBlJAN"]:
