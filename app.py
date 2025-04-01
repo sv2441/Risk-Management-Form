@@ -14,8 +14,8 @@ RISK_TYPES_TABLE_ID = st.secrets.get("airtable", {}).get("RISK_TYPES_TABLE_ID", 
 RISK_CHANGES_TABLE_ID = st.secrets.get("airtable", {}).get("RISK_CHANGES_TABLE_ID", "tblRw7CFjBSPvMNcs")  # Use hardcoded ID as fallback
 RISK_CHANGES_TABLE_NAME = "Risk Changes History"  # Changed to "History" as requested
 
-# Debug mode - enable for troubleshooting
-show_debug = True
+# Debug mode - disable by default for production
+show_debug = False
 
 # App title and description
 st.title("Risk Management System")
@@ -392,30 +392,70 @@ if st.session_state.get('connected', False):
                 elif 'fldfVsQ4b7qc8TAPP' in filtered_record:
                     default_detectability = filtered_record['fldfVsQ4b7qc8TAPP']
                 
-                # Store original values in session state
-                if 'original_severity' not in st.session_state:
-                    st.session_state['original_severity'] = default_severity
-                if 'original_likelihood' not in st.session_state:
-                    st.session_state['original_likelihood'] = default_likelihood  
-                if 'original_detectability' not in st.session_state:
-                    st.session_state['original_detectability'] = default_detectability
-                
-                # Get original overall risk level
-                original_risk_level = ""
-                if 'Overall Risk Level' in filtered_record:
-                    original_risk_level = filtered_record['Overall Risk Level']
-                elif 'Overall Risk Score' in filtered_record:
-                    original_risk_level = filtered_record['Overall Risk Score']
-                elif 'fldJtc0r2NsqF5UPV' in filtered_record:
-                    original_risk_level = filtered_record['fldJtc0r2NsqF5UPV']
-                elif 'fldqLmmgCcAioHTi4' in filtered_record:
-                    original_risk_level = filtered_record['fldqLmmgCcAioHTi4']
-                
-                if 'original_risk_level' not in st.session_state:
-                    st.session_state['original_risk_level'] = original_risk_level
+                # Store original values in session state - only when first loading this risk
+                risk_id_key = f"risk_id_{record_id}"
+                if risk_id_key not in st.session_state or st.session_state[risk_id_key] != record_id:
+                    # First time loading this specific risk, store original values
+                    st.session_state[risk_id_key] = record_id
+                    st.session_state['original_severity'] = default_severity if isinstance(default_severity, str) else "Low"
+                    st.session_state['original_likelihood'] = default_likelihood if isinstance(default_likelihood, str) else "Low"  
+                    st.session_state['original_detectability'] = default_detectability if isinstance(default_detectability, str) else "Low"
+                    
+                    # Get original overall risk level
+                    original_risk_level = ""
+                    if 'Overall Risk Level' in filtered_record:
+                        original_risk_level = filtered_record['Overall Risk Level']
+                    elif 'Overall Risk Score' in filtered_record:
+                        original_risk_level = filtered_record['Overall Risk Score']
+                    elif 'fldJtc0r2NsqF5UPV' in filtered_record:
+                        original_risk_level = filtered_record['fldJtc0r2NsqF5UPV']
+                    elif 'fldqLmmgCcAioHTi4' in filtered_record:
+                        original_risk_level = filtered_record['fldqLmmgCcAioHTi4']
+                    
+                    st.session_state['original_risk_level'] = original_risk_level if isinstance(original_risk_level, str) else ""
+                    
+                    # Print the actual values we're storing (for debugging)
+                    if show_debug:
+                        st.sidebar.write(f"Loaded original values for risk {record_id}:")
+                        st.sidebar.write(f"Severity: {st.session_state['original_severity']}")
+                        st.sidebar.write(f"Likelihood: {st.session_state['original_likelihood']}")
+                        st.sidebar.write(f"Detectability: {st.session_state['original_detectability']}")
+                        st.sidebar.write(f"Risk Level: {st.session_state['original_risk_level']}")
                 
                 # Only allow editing in Form 2 (after ABBYY Response)
                 is_editable = st.session_state.get('form_stage') == 'abbyy_submitted'
+                
+                # Define the update_risk_level function before it's used in the callbacks
+                def update_risk_level():
+                    # Get current values from session state
+                    severity = st.session_state.get('severity', "Low")
+                    likelihood = st.session_state.get('likelihood', "Low")
+                    detectability = st.session_state.get('detectability', "Low")
+                    
+                    # Calculate new risk level
+                    # Convert severity to numeric values: High=3, Medium=2, Low=1
+                    severity_score = 3 if severity == "High" else (2 if severity == "Medium" else 1)
+                    
+                    # Convert likelihood to numeric values: High=3, Medium=2, Low=1
+                    likelihood_score = 3 if likelihood == "High" else (2 if likelihood == "Medium" else 1)
+                    
+                    # Convert detectability to numeric values: Low=3, Medium=2, High=1 (note the inverse scale)
+                    detectability_score = 3 if detectability == "Low" else (2 if detectability == "Medium" else 1)
+                    
+                    # Calculate overall score using the formula
+                    overall_score = severity_score * likelihood_score * detectability_score
+                    
+                    # Convert score to risk level
+                    if overall_score >= 15:  # High risk (15-27)
+                        new_level = "High"
+                    elif overall_score >= 6:  # Medium risk (6-14)
+                        new_level = "Medium"
+                    else:  # Low risk (1-5)
+                        new_level = "Low"
+                    
+                    # Store the new risk level in session state
+                    st.session_state['new_risk_level'] = new_level
+                    st.session_state['risk_score'] = overall_score
                 
                 with col1:
                     # Severity - Allow editing only after ABBYY Response
@@ -425,7 +465,8 @@ if st.session_state.get('connected', False):
                         options=severity_options, 
                         index=severity_index,
                         key="severity",
-                        disabled=not is_editable
+                        disabled=not is_editable,
+                        on_change=update_risk_level if is_editable else None
                     )
                 
                 with col2:
@@ -436,7 +477,8 @@ if st.session_state.get('connected', False):
                         options=likelihood_options, 
                         index=likelihood_index,
                         key="likelihood",
-                        disabled=not is_editable
+                        disabled=not is_editable,
+                        on_change=update_risk_level if is_editable else None
                     )
                 
                 with col3:
@@ -447,37 +489,44 @@ if st.session_state.get('connected', False):
                         options=detectability_options, 
                         index=detectability_index,
                         key="detectability",
-                        disabled=not is_editable
+                        disabled=not is_editable,
+                        on_change=update_risk_level if is_editable else None
                     )
                 
                 with col4:
-                    # Calculate new overall risk level if values have changed
-                    # This is a placeholder calculation - replace with actual formula
-                    def calculate_risk_level(severity, likelihood, detectability):
-                        # Simple formula: if two or more are High, risk is High
-                        # If two or more are Low, risk is Low
-                        # Otherwise, risk is Medium
-                        high_count = sum(1 for level in [severity, likelihood, detectability] if level == "High")
-                        low_count = sum(1 for level in [severity, likelihood, detectability] if level == "Low")
+                    # Display the calculated risk level from session state
+                    if is_editable:
+                        # Get current values
+                        severity = st.session_state.get('severity', severity_level)
+                        likelihood = st.session_state.get('likelihood', likelihood_level)
+                        detectability = st.session_state.get('detectability', detectability_level)
                         
-                        if high_count >= 2:
-                            return "High"
-                        elif low_count >= 2:
-                            return "Low"
-                        else:
-                            return "Medium"
-                    
-                    new_risk_level = calculate_risk_level(severity_level, likelihood_level, detectability_level)
-                    
-                    # Display the calculated risk level
-                    if is_editable and (severity_level != st.session_state['original_severity'] or 
-                                        likelihood_level != st.session_state['original_likelihood'] or 
-                                        detectability_level != st.session_state['original_detectability']):
-                        st.text_input("Overall Risk Level", value=new_risk_level, disabled=True)
+                        # Calculate score for display (even if session state already has it)
+                        severity_score = 3 if severity == "High" else (2 if severity == "Medium" else 1)
+                        likelihood_score = 3 if likelihood == "High" else (2 if likelihood == "Medium" else 1)
+                        detectability_score = 3 if detectability == "Low" else (2 if detectability == "Medium" else 1)
+                        overall_score = severity_score * likelihood_score * detectability_score
+                        
+                        # Determine level from score (or get from session state)
+                        new_risk_level = st.session_state.get('new_risk_level', 
+                            "High" if overall_score >= 15 else ("Medium" if overall_score >= 6 else "Low"))
+                        
+                        # Make sure session state is updated with the latest value
                         st.session_state['new_risk_level'] = new_risk_level
+                        st.session_state['risk_score'] = overall_score
+                        
+                        # Display the result
+                        st.text_input("Overall Risk Level", 
+                                     value=f"{new_risk_level} (Score: {overall_score})", 
+                                     disabled=True)
                     else:
-                        st.text_input("Overall Risk Level", value=str(original_risk_level), disabled=True)
-                        st.session_state['new_risk_level'] = original_risk_level
+                        # Show original risk level when not in edit mode
+                        st.text_input("Overall Risk Level", 
+                                     value=str(st.session_state.get('original_risk_level', "")), 
+                                     disabled=True)
+                        
+                        # Ensure the new risk level matches the original when not in edit mode
+                        st.session_state['new_risk_level'] = st.session_state.get('original_risk_level', "")
                 
                 # Form 1: ABBYY Response (initial stage)
                 if st.session_state['form_stage'] == 'initial':
@@ -589,11 +638,11 @@ if st.session_state.get('connected', False):
                                     "fldDmecXGLkpnK8lM": str(impact) if impact else "",  # Impact
                                     "fldcXaPheiACBgbEv": str(root_causes) if root_causes else "",  # Root Causes
                                     "fldqf7xmu3Z2EgTm0": str(components) if components else "",  # Components
-                                    "fldTr9bdRevGV7zyi": str(st.session_state.get('original_severity', "")),  # Original Severity Level
+                                    "fldTr9bdRevGV7zyi": str(st.session_state.get('original_severity', default_severity)),  # Original Severity Level
                                     "fldEYZSgQTr00GHf5": str(severity_level) if severity_level else "",  # New Severity Level
-                                    "fldUZEGlpdaMMGTC9": str(st.session_state.get('original_likelihood', "")),  # Original Likelihood Level
+                                    "fldUZEGlpdaMMGTC9": str(st.session_state.get('original_likelihood', default_likelihood)),  # Original Likelihood Level
                                     "fld860nkAw1DUJaro": str(likelihood_level) if likelihood_level else "",  # New Likelihood Level
-                                    "fldXO1FfoUa89lnsA": str(st.session_state.get('original_detectability', "")),  # Original Detectability Level
+                                    "fldXO1FfoUa89lnsA": str(st.session_state.get('original_detectability', default_detectability)),  # Original Detectability Level
                                     "fld60ppjc9HEM8RPo": str(detectability_level) if detectability_level else "",  # New Detectability Level
                                     "fldXsSjjUWPjRftIm": str(st.session_state.get('original_risk_level', "")),  # Original Overall Risk Level
                                     "fldDJXURZKKyfz8pg": str(st.session_state.get('new_risk_level', "")),  # New Overall Risk Level
@@ -602,10 +651,21 @@ if st.session_state.get('connected', False):
                                     "fldmpEa117ZHBlJAN": str(change_notes) if change_notes else ""  # Change Notes
                                 }
                                 
+                                # Include risk score in change notes if calculated
+                                if 'risk_score' in st.session_state and st.session_state['risk_score']:
+                                    risk_score = st.session_state['risk_score']
+                                    score_note = f"Risk Score: {risk_score} (calculated using formula: Severity × Likelihood × Detectability)"
+                                    
+                                    # Append to existing notes or create new
+                                    if data["fldmpEa117ZHBlJAN"]:
+                                        data["fldmpEa117ZHBlJAN"] = data["fldmpEa117ZHBlJAN"] + "\n\n" + score_note
+                                    else:
+                                        data["fldmpEa117ZHBlJAN"] = score_note
+                                
                                 # Ensure all values are JSON-safe (no NaN values)
                                 sanitized_data = {k: json_safe_value(v) for k, v in data.items()}
                                 
-                                # Debug information
+                                # Debug information (only shown when debugging is enabled)
                                 if show_debug:
                                     st.write("Debug Information:")
                                     st.write("Fields being sent to Airtable using field IDs:")
@@ -632,11 +692,11 @@ if st.session_state.get('connected', False):
                                             "Impact": str(impact) if impact else "",
                                             "Root Causes": str(root_causes) if root_causes else "",
                                             "Components": str(components) if components else "",
-                                            "Original Severity Level": str(st.session_state.get('original_severity', "")),
+                                            "Original Severity Level": str(st.session_state.get('original_severity', default_severity)),
                                             "New Severity Level": str(severity_level) if severity_level else "",
-                                            "Original Likelihood Level": str(st.session_state.get('original_likelihood', "")),
+                                            "Original Likelihood Level": str(st.session_state.get('original_likelihood', default_likelihood)),
                                             "New Likelihood Level": str(likelihood_level) if likelihood_level else "",
-                                            "Original Detectability Level": str(st.session_state.get('original_detectability', "")),
+                                            "Original Detectability Level": str(st.session_state.get('original_detectability', default_detectability)),
                                             "New Detectability Level": str(detectability_level) if detectability_level else "",
                                             "Original Overall Risk Level": str(st.session_state.get('original_risk_level', "")),
                                             "New Overall Risk Level": str(st.session_state.get('new_risk_level', "")),
@@ -648,6 +708,7 @@ if st.session_state.get('connected', False):
                                         # Ensure all values are JSON-safe (no NaN values)
                                         sanitized_name_data = {k: json_safe_value(v) for k, v in data_by_name.items()}
                                         
+                                        # Only show debug information if explicitly enabled
                                         if show_debug:
                                             st.write("Trying with field names:")
                                             st.write(sanitized_name_data)
@@ -675,10 +736,13 @@ if st.session_state.get('connected', False):
                                                 }
                                             )
                                             
+                                            # Only log API response details in debug mode
+                                            if show_debug:
+                                                st.write(f"API Response: {api_response.status_code}")
+                                                st.write(api_response.json())
+                                                
                                             if api_response.status_code in [200, 201]:
                                                 st.success("Successfully saved using direct API call!")
-                                            else:
-                                                st.error(f"API call failed: {api_response.status_code} - {api_response.text}")
                                         except Exception as api_error:
                                             st.error(f"Direct API call also failed: {api_error}")
                             else:
