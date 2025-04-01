@@ -5,18 +5,17 @@ from pyairtable import Api, Base, Table
 from dotenv import load_dotenv
 import requests
 
-# Load environment variables
-load_dotenv()
-
-# Get Airtable API key and IDs from environment variables
-AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
-BASE_ID = os.getenv("AIRTABLE_BASE_ID", "appNqoykW6Kqas0nh")  # Default value if not set
-RISK_REGISTER_TABLE_ID = os.getenv("AIRTABLE_TABLE_ID", "tblMYODwpfZDIpjTL") 
-RISK_TYPES_TABLE_ID = os.getenv("RISK_TYPES_TABLE_ID", "tblWpajjZP9siICLD")  # Make configurable via env var
+# Load configuration from environment variables or streamlit secrets
+# Streamlit secrets are defined in .streamlit/secrets.toml
+AIRTABLE_API_KEY = st.secrets.get("airtable", {}).get("AIRTABLE_API_KEY", os.getenv("AIRTABLE_API_KEY", ""))
+BASE_ID = st.secrets.get("airtable", {}).get("AIRTABLE_BASE_ID", "")
+RISK_REGISTER_TABLE_ID = st.secrets.get("airtable", {}).get("AIRTABLE_TABLE_ID", "")
+RISK_TYPES_TABLE_ID = st.secrets.get("airtable", {}).get("RISK_TYPES_TABLE_ID", "")
+RISK_CHANGES_TABLE_ID = st.secrets.get("airtable", {}).get("RISK_CHANGES_TABLE_ID", "tblRw7CFjBSPvMNcs")  # Use hardcoded ID as fallback
 RISK_CHANGES_TABLE_NAME = "Risk Changes History"  # Changed to "History" as requested
 
-# Debug mode - disable by default
-show_debug = False
+# Debug mode - enable for troubleshooting
+show_debug = True
 
 # App title and description
 st.title("Risk Management System")
@@ -25,7 +24,7 @@ st.write("This application interfaces with Airtable to manage risk register entr
 # Function to connect to Airtable and get data
 def get_airtable_data():
     if not AIRTABLE_API_KEY or not BASE_ID or not RISK_REGISTER_TABLE_ID:
-        st.error("Please ensure all Airtable credentials (API Key, Base ID, and Table ID) are set in the .env file.")
+        st.error("Please ensure all Airtable credentials (API Key, Base ID, and Table ID) are set in the .streamlit/secrets.toml file.")
         return None, None, None
     
     try:
@@ -34,10 +33,11 @@ def get_airtable_data():
         
         # Try to access Risk Types table but don't fail if it's not accessible
         try:
-            risk_types_table = Table(AIRTABLE_API_KEY, BASE_ID, RISK_TYPES_TABLE_ID)
+            risk_types_table = Table(AIRTABLE_API_KEY, BASE_ID, RISK_TYPES_TABLE_ID) if RISK_TYPES_TABLE_ID else None
             # Test if we can access it by getting a record
-            risk_types_table.first()
-            st.sidebar.success("Connected to Risk Types table successfully")
+            if risk_types_table:
+                risk_types_table.first()
+                st.sidebar.success("Connected to Risk Types table successfully")
         except Exception as e:
             st.warning(f"Could not access Risk Types table: {e}")
             st.info("Risk Type names will be shown as IDs. Check your API token permissions.")
@@ -45,26 +45,23 @@ def get_airtable_data():
         
         # Create risk changes table if it doesn't exist yet
         try:
-            base = Base(AIRTABLE_API_KEY, BASE_ID)
-            # Try to get the risk changes table
-            try:
-                risk_changes_table = base.table(RISK_CHANGES_TABLE_NAME)
-                # Test if we can access it
+            # Try to get the risk changes table directly by ID
+            if RISK_CHANGES_TABLE_ID:
+                risk_changes_table = Table(AIRTABLE_API_KEY, BASE_ID, RISK_CHANGES_TABLE_ID)
                 try:
+                    # Just test connection, don't actually fetch data
                     risk_changes_table.first()
                     st.sidebar.success(f"Connected to '{RISK_CHANGES_TABLE_NAME}' table successfully")
                 except Exception as e:
-                    st.sidebar.error(f"Error accessing '{RISK_CHANGES_TABLE_NAME}' table: {e}")
+                    st.warning(f"Error accessing '{RISK_CHANGES_TABLE_NAME}' table: {e}")
                     risk_changes_table = None
-            except Exception as table_e:
-                st.warning(f"'{RISK_CHANGES_TABLE_NAME}' table not found: {table_e}")
-                st.info(f"You need to create the '{RISK_CHANGES_TABLE_NAME}' table in your Airtable base.")
-                risk_changes_table = None
-        except Exception as e:
-            st.warning(f"Could not access base: {e}")
-            risk_changes_table = None
+                
+            return risk_register_table, risk_changes_table, risk_types_table
             
-        return risk_register_table, risk_changes_table, risk_types_table
+        except Exception as e:
+            st.warning(f"Could not access risk changes table: {e}")
+            risk_changes_table = None
+            return risk_register_table, None, risk_types_table
         
     except Exception as e:
         st.error(f"Error connecting to Airtable: {e}")
@@ -198,6 +195,27 @@ if st.session_state.get('connected', False):
                     return ", ".join(clean_display_value(item) for item in value if item is not None)
                 else:
                     return str(value) if value is not None else ""
+            
+            # Helper function to ensure JSON-safe values (no NaN)
+            def json_safe_value(value):
+                import math
+                
+                if value is None:
+                    return ""
+                
+                # Check for NaN or infinity
+                if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+                    return ""
+                
+                # Handle lists recursively
+                if isinstance(value, list):
+                    return [json_safe_value(item) for item in value]
+                
+                # Handle dictionaries recursively
+                if isinstance(value, dict):
+                    return {k: json_safe_value(v) for k, v in value.items()}
+                
+                return value
             
             # Filter record based on selection
             filtered_record = None
@@ -545,45 +563,9 @@ if st.session_state.get('connected', False):
                             # Check if risk_changes_table is available
                             if not risk_changes_table:
                                 st.error(f"Cannot access '{RISK_CHANGES_TABLE_NAME}' table. Please check permissions.")
-                                
-                                # Try to provide more specific information about the issue
-                                try:
-                                    base = Base(AIRTABLE_API_KEY, BASE_ID)
-                                    try:
-                                        tables = base.tables
-                                        table_names = [table.name for table in tables]
-                                        st.info(f"Available tables in this base: {', '.join(table_names)}")
-                                    except:
-                                        st.warning("Could not retrieve table names")
-                                    
-                                    # Try to create the table as a fallback
-                                    if st.button("Create Risk Changes History Table"):
-                                        try:
-                                            # This might not work with all API tokens
-                                            schema = {
-                                                "name": RISK_CHANGES_TABLE_NAME,
-                                                "description": "Table to store history of risk changes"
-                                            }
-                                            result = requests.post(
-                                                f"https://api.airtable.com/v0/meta/bases/{BASE_ID}/tables",
-                                                headers={
-                                                    "Authorization": f"Bearer {AIRTABLE_API_KEY}",
-                                                    "Content-Type": "application/json"
-                                                },
-                                                json=schema
-                                            )
-                                            if result.status_code == 200:
-                                                st.success("Table created successfully! Please refresh the app.")
-                                            else:
-                                                st.error(f"Failed to create table: {result.text}")
-                                        except Exception as create_e:
-                                            st.error(f"Error creating table: {create_e}")
-                                except Exception as table_e:
-                                    st.error(f"Error checking available tables: {table_e}")
-                                
-                                # Skip the rest of this function
+                                st.info("Make sure your API key has access to the table with ID: " + RISK_CHANGES_TABLE_ID)
                                 st.stop()
-                            
+                                
                             # Only save if there's a change or user explicitly wants to save
                             has_changes = (
                                 severity_level != st.session_state['original_severity'] or
@@ -595,60 +577,116 @@ if st.session_state.get('connected', False):
                             )
                             
                             if has_changes:
-                                # Create data with all the fields that should be included in the Risk Changes History
+                                # Create data dictionary using field IDs directly
                                 data = {
-                                    "Original Risk Reference": selected_risk_reference,
-                                    "FH Personnel": selected_fh_personnel,
-                                    "ABBYY Personnel": selected_abbyy_personnel,
-                                    "Risk Category": risk_category,
-                                    "Risk Type": risk_type_display,
-                                    "Risk Description": risk_description,
-                                    "Impact": impact,
-                                    "Root Causes": root_causes,
-                                    "Components": components,
-                                    "Original Severity Level": st.session_state['original_severity'],
-                                    "New Severity Level": severity_level,
-                                    "Original Likelihood Level": st.session_state['original_likelihood'],
-                                    "New Likelihood Level": likelihood_level,
-                                    "Original Detectability Level": st.session_state['original_detectability'],
-                                    "New Detectability Level": detectability_level,
-                                    "Original Overall Risk Level": st.session_state['original_risk_level'],
-                                    "New Overall Risk Level": st.session_state['new_risk_level'],
-                                    "ABBYY's Response": st.session_state['abbyy_response'],
-                                    "FH Response": fh_response,
-                                    "Change Notes": change_notes
+                                    "fldJwiM65ftTV4wA3": str(selected_risk_reference) if selected_risk_reference else "",  # Original Risk Reference
+                                    "fldMvXyJc8zCAHJJg": str(selected_fh_personnel) if selected_fh_personnel else "",  # FH Personnel
+                                    "fld6RKhK7kWfsJost": str(selected_abbyy_personnel) if selected_abbyy_personnel else "",  # ABBYY Personnel
+                                    "fldfTsmdEsXG2dcAo": "Todo",  # Status
+                                    "flde0fUGwJlykaRnM": str(risk_category) if risk_category else "",  # Risk Category
+                                    "fldYdVmw8pCKyRagq": str(risk_type_display) if risk_type_display else "",  # Risk Type
+                                    "fldrpv5xlWDVnIE5d": str(risk_description) if risk_description else "",  # Risk Description
+                                    "fldDmecXGLkpnK8lM": str(impact) if impact else "",  # Impact
+                                    "fldcXaPheiACBgbEv": str(root_causes) if root_causes else "",  # Root Causes
+                                    "fldqf7xmu3Z2EgTm0": str(components) if components else "",  # Components
+                                    "fldTr9bdRevGV7zyi": str(st.session_state.get('original_severity', "")),  # Original Severity Level
+                                    "fldEYZSgQTr00GHf5": str(severity_level) if severity_level else "",  # New Severity Level
+                                    "fldUZEGlpdaMMGTC9": str(st.session_state.get('original_likelihood', "")),  # Original Likelihood Level
+                                    "fld860nkAw1DUJaro": str(likelihood_level) if likelihood_level else "",  # New Likelihood Level
+                                    "fldXO1FfoUa89lnsA": str(st.session_state.get('original_detectability', "")),  # Original Detectability Level
+                                    "fld60ppjc9HEM8RPo": str(detectability_level) if detectability_level else "",  # New Detectability Level
+                                    "fldXsSjjUWPjRftIm": str(st.session_state.get('original_risk_level', "")),  # Original Overall Risk Level
+                                    "fldDJXURZKKyfz8pg": str(st.session_state.get('new_risk_level', "")),  # New Overall Risk Level
+                                    "fldQ66bxR2keyBdHm": str(st.session_state.get('abbyy_response', "")),  # ABBYY's Response
+                                    "fldj5ERls7Jsaq21H": str(fh_response) if fh_response else "",  # FH Response
+                                    "fldmpEa117ZHBlJAN": str(change_notes) if change_notes else ""  # Change Notes
                                 }
                                 
-                                # Create a record in the Risk Changes table
-                                result = risk_changes_table.create(data)
-                                st.success("Changes saved successfully!")
+                                # Ensure all values are JSON-safe (no NaN values)
+                                sanitized_data = {k: json_safe_value(v) for k, v in data.items()}
                                 
-                                # Reset form after submission
-                                st.session_state['form_stage'] = 'initial'
-                                st.session_state['abbyy_response'] = None
-                                del st.session_state['original_severity']
-                                del st.session_state['original_likelihood']
-                                del st.session_state['original_detectability']
-                                del st.session_state['original_risk_level']
-                                if 'new_risk_level' in st.session_state:
-                                    del st.session_state['new_risk_level']
+                                # Debug information
+                                if show_debug:
+                                    st.write("Debug Information:")
+                                    st.write("Fields being sent to Airtable using field IDs:")
+                                    st.write(sanitized_data)
                                 
-                                # Use rerun instead of experimental_rerun
-                                st.rerun()
+                                try:
+                                    # Create a record in the Risk Changes table using field IDs
+                                    result = risk_changes_table.create(sanitized_data)
+                                    st.success("Changes saved successfully!")
+                                except Exception as field_id_error:
+                                    st.error(f"Error saving with field IDs: {field_id_error}")
+                                    st.info("Trying alternative method with field names...")
+                                    
+                                    # Try with field names instead
+                                    try:
+                                        data_by_name = {
+                                            "Original Risk Reference": str(selected_risk_reference) if selected_risk_reference else "",
+                                            "FH Personnel": str(selected_fh_personnel) if selected_fh_personnel else "",
+                                            "ABBYY Personnel": str(selected_abbyy_personnel) if selected_abbyy_personnel else "",
+                                            "Status": "Todo",
+                                            "Risk Category": str(risk_category) if risk_category else "",
+                                            "Risk Type": str(risk_type_display) if risk_type_display else "",
+                                            "Risk Description": str(risk_description) if risk_description else "",
+                                            "Impact": str(impact) if impact else "",
+                                            "Root Causes": str(root_causes) if root_causes else "",
+                                            "Components": str(components) if components else "",
+                                            "Original Severity Level": str(st.session_state.get('original_severity', "")),
+                                            "New Severity Level": str(severity_level) if severity_level else "",
+                                            "Original Likelihood Level": str(st.session_state.get('original_likelihood', "")),
+                                            "New Likelihood Level": str(likelihood_level) if likelihood_level else "",
+                                            "Original Detectability Level": str(st.session_state.get('original_detectability', "")),
+                                            "New Detectability Level": str(detectability_level) if detectability_level else "",
+                                            "Original Overall Risk Level": str(st.session_state.get('original_risk_level', "")),
+                                            "New Overall Risk Level": str(st.session_state.get('new_risk_level', "")),
+                                            "ABBYY's Response": str(st.session_state.get('abbyy_response', "")),
+                                            "FH Response": str(fh_response) if fh_response else "",
+                                            "Change Notes": str(change_notes) if change_notes else ""
+                                        }
+                                        
+                                        # Ensure all values are JSON-safe (no NaN values)
+                                        sanitized_name_data = {k: json_safe_value(v) for k, v in data_by_name.items()}
+                                        
+                                        if show_debug:
+                                            st.write("Trying with field names:")
+                                            st.write(sanitized_name_data)
+                                            
+                                        result = risk_changes_table.create(sanitized_name_data)
+                                        st.success("Changes saved successfully with field names!")
+                                    except Exception as name_error:
+                                        st.error(f"Error saving with field names: {name_error}")
+                                        
+                                        # Try one more method: direct API call
+                                        try:
+                                            # Attempt direct API call to create record
+                                            api_response = requests.post(
+                                                f"https://api.airtable.com/v0/{BASE_ID}/{RISK_CHANGES_TABLE_ID}",
+                                                headers={
+                                                    "Authorization": f"Bearer {AIRTABLE_API_KEY}",
+                                                    "Content-Type": "application/json"
+                                                },
+                                                json={
+                                                    "records": [
+                                                        {
+                                                            "fields": sanitized_data
+                                                        }
+                                                    ]
+                                                }
+                                            )
+                                            
+                                            if api_response.status_code in [200, 201]:
+                                                st.success("Successfully saved using direct API call!")
+                                            else:
+                                                st.error(f"API call failed: {api_response.status_code} - {api_response.text}")
+                                        except Exception as api_error:
+                                            st.error(f"Direct API call also failed: {api_error}")
                             else:
                                 st.info("No changes detected. Nothing was saved.")
                                 
                         except Exception as e:
                             st.error(f"Error saving changes: {e}")
-                            
-                            # Display the field names from the target table to help troubleshoot
-                            try:
-                                sample_record = risk_changes_table.first()
-                                if sample_record:
-                                    field_names = list(sample_record['fields'].keys())
-                                    st.info(f"Available fields in the target table: {', '.join(field_names)}")
-                            except:
-                                pass
+                            st.info("Please check your Airtable configuration and ensure API permissions are correct.")
             else:
                 st.info("Please select a valid Risk Reference to load the risk details.")
         else:
