@@ -528,229 +528,241 @@ if st.session_state.get('connected', False):
                         # Ensure the new risk level matches the original when not in edit mode
                         st.session_state['new_risk_level'] = st.session_state.get('original_risk_level', "")
                 
-                # Form 1: ABBYY Response (initial stage)
-                if st.session_state['form_stage'] == 'initial':
-                    st.write("### Form 1: ABBYY Response")
-                    
-                    # ABBYY's Response
-                    abbyy_response_options = ["Accept", "Change"]
-                    default_abbyy_response = "Accept"
-                    
-                    if 'ABBYY Response' in filtered_record:
-                        default_abbyy_response = filtered_record['ABBYY Response']
-                    elif 'fldPQRI4yOhY8bXRn' in filtered_record:
-                        default_abbyy_response = filtered_record['fldPQRI4yOhY8bXRn']
-                    
-                    if default_abbyy_response not in abbyy_response_options:
-                        default_abbyy_response = abbyy_response_options[0]
-                    
-                    abbyy_index = abbyy_response_options.index(default_abbyy_response)
-                    abbyy_response = st.selectbox(
-                        "ABBYY's Response", 
-                        options=abbyy_response_options, 
-                        index=abbyy_index,
-                        key="abbyy_resp",
-                        on_change=lambda: set_abbyy_response()
-                    )
-                    
-                    # Set ABBYY Response via callback 
-                    def set_abbyy_response():
-                        st.session_state['abbyy_response'] = st.session_state['abbyy_resp']
-                        st.session_state['form_stage'] = 'abbyy_submitted'
-                    
-                    # FH Response options are shown immediately but disabled until ABBYY response is set
-                    st.write("### FH Response")
-                    fh_response_options = ["Accept", "Unsure"]
-                    default_fh_response = "Accept" if abbyy_response == "Accept" else "Unsure"
-                    fh_index = fh_response_options.index(default_fh_response)
-                    
-                    fh_response = st.selectbox(
-                        "FH Response", 
-                        options=fh_response_options, 
-                        index=fh_index,
-                        key="fh_resp",
-                        disabled=True
-                    )
-                    
-                    # Notes field
-                    change_notes = st.text_area("Notes", key="change_notes", 
-                                               help="Add any additional notes about this risk assessment",
-                                               disabled=True)
-                    
-                    # Save button (disabled)
-                    st.button("Save Changes", disabled=True)
+                # Add session state for active tab
+                if 'active_tab' not in st.session_state:
+                    st.session_state['active_tab'] = 0
                 
-                # Form 2: FH Response (after ABBYY Response)
-                elif st.session_state['form_stage'] == 'abbyy_submitted':
-                    st.write("### Form 2: FH Response")
-                    
-                    # Display the saved ABBYY Response
-                    st.write(f"ABBYY Response: **{st.session_state['abbyy_response']}**")
-                    
-                    # FH Response options
-                    fh_response_options = ["Accept", "Unsure"]
-                    
-                    # Default to "Accept" if ABBYY selected "Accept"
-                    default_fh_response = "Accept" if st.session_state['abbyy_response'] == "Accept" else "Unsure"
-                    
-                    # Allow FH to choose response
-                    fh_index = fh_response_options.index(default_fh_response)
-                    fh_response = st.selectbox(
-                        "FH Response", 
-                        options=fh_response_options, 
-                        index=fh_index,
-                        key="fh_resp"
-                    )
-                    
-                    # Notes field
-                    change_notes = st.text_area("Notes", key="change_notes", 
-                                               help="Add any additional notes about this risk assessment")
-                    
-                    # Submit button
-                    if st.button("Save Changes"):
-                        try:
-                            # Check if risk_changes_table is available
-                            if not risk_changes_table:
-                                st.error(f"Cannot access '{RISK_CHANGES_TABLE_NAME}' table. Please check permissions.")
-                                st.info("Make sure your API key has access to the table with ID: " + RISK_CHANGES_TABLE_ID)
-                                st.stop()
-                                
-                            # Only save if there's a change or user explicitly wants to save
-                            has_changes = (
-                                severity_level != st.session_state['original_severity'] or
-                                likelihood_level != st.session_state['original_likelihood'] or
-                                detectability_level != st.session_state['original_detectability'] or
-                                st.session_state['abbyy_response'] == "Change" or
-                                fh_response == "Unsure" or
-                                len(change_notes.strip()) > 0
-                            )
+                # Set the active tab based on form stage
+                if st.session_state['form_stage'] == 'abbyy_submitted' and st.session_state['active_tab'] == 0:
+                    st.session_state['active_tab'] = 1
+                
+                # Create tabs for ABBYY and FH Response
+                abbyy_tab, fh_tab = st.tabs(["ABBYY Response", "FH Response"])
+                
+                # Set ABBYY Response via callback 
+                def set_abbyy_response():
+                    st.session_state['abbyy_response'] = st.session_state['abbyy_resp']
+                    st.session_state['form_stage'] = 'abbyy_submitted'
+                    st.session_state['active_tab'] = 1  # Switch to FH Response tab
+                
+                # ABBYY Response Tab
+                with abbyy_tab:
+                    if st.session_state['form_stage'] == 'initial':
+                        # ABBYY's Response
+                        abbyy_response_options = ["Accept", "Change"]
+                        default_abbyy_response = "Accept"
+                        
+                        if 'ABBYY Response' in filtered_record:
+                            default_abbyy_response = filtered_record['ABBYY Response']
+                        elif 'fldPQRI4yOhY8bXRn' in filtered_record:
+                            default_abbyy_response = filtered_record['fldPQRI4yOhY8bXRn']
+                        
+                        if default_abbyy_response not in abbyy_response_options:
+                            default_abbyy_response = abbyy_response_options[0]
+                        
+                        abbyy_index = abbyy_response_options.index(default_abbyy_response)
+                        abbyy_response = st.selectbox(
+                            "ABBYY's Response", 
+                            options=abbyy_response_options, 
+                            index=abbyy_index,
+                            key="abbyy_resp",
+                            on_change=lambda: set_abbyy_response()
+                        )
+                    else:
+                        st.info("ABBYY response has been submitted. Please go to the FH Response tab.")
+                
+                # FH Response Tab
+                with fh_tab:
+                    if st.session_state['form_stage'] == 'initial':
+                        st.info("Please submit ABBYY response first in the ABBYY Response tab.")
+                    else:
+                        # Display the changes made by ABBYY
+                        st.write("### Changes Made By ABBYY")
+                        st.write(f"ABBYY Response: **{st.session_state['abbyy_response']}**")
+                        
+                        # Show changes to risk levels if any
+                        if st.session_state['abbyy_response'] == "Change":
+                            changes = []
+                            if severity_level != st.session_state['original_severity']:
+                                changes.append(f"Severity: {st.session_state['original_severity']} → {severity_level}")
+                            if likelihood_level != st.session_state['original_likelihood']:
+                                changes.append(f"Likelihood: {st.session_state['original_likelihood']} → {likelihood_level}")
+                            if detectability_level != st.session_state['original_detectability']:
+                                changes.append(f"Detectability: {st.session_state['original_detectability']} → {detectability_level}")
                             
-                            if has_changes:
-                                # Create data dictionary using field IDs directly
-                                data = {
-                                    "fldJwiM65ftTV4wA3": str(selected_risk_reference) if selected_risk_reference else "",  # Original Risk Reference
-                                    "fldMvXyJc8zCAHJJg": str(selected_fh_personnel) if selected_fh_personnel else "",  # FH Personnel
-                                    "fld6RKhK7kWfsJost": str(selected_abbyy_personnel) if selected_abbyy_personnel else "",  # ABBYY Personnel
-                                    "fldfTsmdEsXG2dcAo": "Todo",  # Status
-                                    "flde0fUGwJlykaRnM": str(risk_category) if risk_category else "",  # Risk Category
-                                    "fldYdVmw8pCKyRagq": str(risk_type_display) if risk_type_display else "",  # Risk Type
-                                    "fldrpv5xlWDVnIE5d": str(risk_description) if risk_description else "",  # Risk Description
-                                    "fldDmecXGLkpnK8lM": str(impact) if impact else "",  # Impact
-                                    "fldcXaPheiACBgbEv": str(root_causes) if root_causes else "",  # Root Causes
-                                    "fldqf7xmu3Z2EgTm0": str(components) if components else "",  # Components
-                                    "fldTr9bdRevGV7zyi": str(st.session_state.get('original_severity', default_severity)),  # Original Severity Level
-                                    "fldEYZSgQTr00GHf5": str(severity_level) if severity_level else "",  # New Severity Level
-                                    "fldUZEGlpdaMMGTC9": str(st.session_state.get('original_likelihood', default_likelihood)),  # Original Likelihood Level
-                                    "fld860nkAw1DUJaro": str(likelihood_level) if likelihood_level else "",  # New Likelihood Level
-                                    "fldXO1FfoUa89lnsA": str(st.session_state.get('original_detectability', default_detectability)),  # Original Detectability Level
-                                    "fld60ppjc9HEM8RPo": str(detectability_level) if detectability_level else "",  # New Detectability Level
-                                    "fldXsSjjUWPjRftIm": str(st.session_state.get('original_risk_level', "")),  # Original Overall Risk Level
-                                    "fldDJXURZKKyfz8pg": str(st.session_state.get('new_risk_level', "")),  # New Overall Risk Level
-                                    "fldQ66bxR2keyBdHm": str(st.session_state.get('abbyy_response', "")),  # ABBYY's Response
-                                    "fldj5ERls7Jsaq21H": str(fh_response) if fh_response else "",  # FH Response
-                                    "fldmpEa117ZHBlJAN": str(change_notes) if change_notes else ""  # Change Notes
-                                }
-                                
-                                # Include risk score in change notes if calculated
-                                if 'risk_score' in st.session_state and st.session_state['risk_score']:
-                                    risk_score = st.session_state['risk_score']
-                                    score_note = f"Risk Score: {risk_score}"
-                                    
-                                    # Append to existing notes or create new
-                                    if data["fldmpEa117ZHBlJAN"]:
-                                        data["fldmpEa117ZHBlJAN"] = data["fldmpEa117ZHBlJAN"] + "\n\n" + score_note
-                                    else:
-                                        data["fldmpEa117ZHBlJAN"] = score_note
-                                
-                                # Ensure all values are JSON-safe (no NaN values)
-                                sanitized_data = {k: json_safe_value(v) for k, v in data.items()}
-                                
-                                # Debug information (only shown when debugging is enabled)
-                                if show_debug:
-                                    st.write("Debug Information:")
-                                    st.write("Fields being sent to Airtable using field IDs:")
-                                    st.write(sanitized_data)
-                                
-                                try:
-                                    # Create a record in the Risk Changes table using field IDs
-                                    result = risk_changes_table.create(sanitized_data)
-                                    st.success("Changes saved successfully!")
-                                except Exception as field_id_error:
-                                    st.error(f"Error saving with field IDs: {field_id_error}")
-                                    st.info("Trying alternative method with field names...")
-                                    
-                                    # Try with field names instead
-                                    try:
-                                        data_by_name = {
-                                            "Original Risk Reference": str(selected_risk_reference) if selected_risk_reference else "",
-                                            "FH Personnel": str(selected_fh_personnel) if selected_fh_personnel else "",
-                                            "ABBYY Personnel": str(selected_abbyy_personnel) if selected_abbyy_personnel else "",
-                                            "Status": "Todo",
-                                            "Risk Category": str(risk_category) if risk_category else "",
-                                            "Risk Type": str(risk_type_display) if risk_type_display else "",
-                                            "Risk Description": str(risk_description) if risk_description else "",
-                                            "Impact": str(impact) if impact else "",
-                                            "Root Causes": str(root_causes) if root_causes else "",
-                                            "Components": str(components) if components else "",
-                                            "Original Severity Level": str(st.session_state.get('original_severity', default_severity)),
-                                            "New Severity Level": str(severity_level) if severity_level else "",
-                                            "Original Likelihood Level": str(st.session_state.get('original_likelihood', default_likelihood)),
-                                            "New Likelihood Level": str(likelihood_level) if likelihood_level else "",
-                                            "Original Detectability Level": str(st.session_state.get('original_detectability', default_detectability)),
-                                            "New Detectability Level": str(detectability_level) if detectability_level else "",
-                                            "Original Overall Risk Level": str(st.session_state.get('original_risk_level', "")),
-                                            "New Overall Risk Level": str(st.session_state.get('new_risk_level', "")),
-                                            "ABBYY's Response": str(st.session_state.get('abbyy_response', "")),
-                                            "FH Response": str(fh_response) if fh_response else "",
-                                            "Change Notes": str(change_notes) if change_notes else ""
-                                        }
-                                        
-                                        # Ensure all values are JSON-safe (no NaN values)
-                                        sanitized_name_data = {k: json_safe_value(v) for k, v in data_by_name.items()}
-                                        
-                                        # Only show debug information if explicitly enabled
-                                        if show_debug:
-                                            st.write("Trying with field names:")
-                                            st.write(sanitized_name_data)
-                                            
-                                        result = risk_changes_table.create(sanitized_name_data)
-                                        st.success("Changes saved successfully with field names!")
-                                    except Exception as name_error:
-                                        st.error(f"Error saving with field names: {name_error}")
-                                        
-                                        # Try one more method: direct API call
-                                        try:
-                                            # Attempt direct API call to create record
-                                            api_response = requests.post(
-                                                f"https://api.airtable.com/v0/{BASE_ID}/{RISK_CHANGES_TABLE_ID}",
-                                                headers={
-                                                    "Authorization": f"Bearer {AIRTABLE_API_KEY}",
-                                                    "Content-Type": "application/json"
-                                                },
-                                                json={
-                                                    "records": [
-                                                        {
-                                                            "fields": sanitized_data
-                                                        }
-                                                    ]
-                                                }
-                                            )
-                                            
-                                            # Only log API response details in debug mode
-                                            if show_debug:
-                                                st.write(f"API Response: {api_response.status_code}")
-                                                st.write(api_response.json())
-                                                
-                                            if api_response.status_code in [200, 201]:
-                                                st.success("Successfully saved using direct API call!")
-                                        except Exception as api_error:
-                                            st.error(f"Direct API call also failed: {api_error}")
+                            if changes:
+                                st.write("Risk level changes:")
+                                for change in changes:
+                                    st.write(f"- {change}")
                             else:
-                                st.info("No changes detected. Nothing was saved.")
+                                st.write("No specific risk level changes were made.")
+                        
+                        st.write("### FH Response")
+                        
+                        # FH Response options
+                        fh_response_options = ["Accept", "Unsure"]
+                        
+                        # Default to "Accept" if ABBYY selected "Accept"
+                        default_fh_response = "Accept" if st.session_state['abbyy_response'] == "Accept" else "Unsure"
+                        
+                        # Allow FH to choose response
+                        fh_index = fh_response_options.index(default_fh_response)
+                        fh_response = st.selectbox(
+                            "FH Response", 
+                            options=fh_response_options, 
+                            index=fh_index,
+                            key="fh_resp"
+                        )
+                        
+                        # Notes field
+                        change_notes = st.text_area("Notes", key="change_notes", 
+                                                   help="Add any additional notes about this risk assessment")
+                        
+                        # Submit button
+                        if st.button("Save Changes"):
+                            try:
+                                # Check if risk_changes_table is available
+                                if not risk_changes_table:
+                                    st.error(f"Cannot access '{RISK_CHANGES_TABLE_NAME}' table. Please check permissions.")
+                                    st.info("Make sure your API key has access to the table with ID: " + RISK_CHANGES_TABLE_ID)
+                                    st.stop()
+                                    
+                                # Only save if there's a change or user explicitly wants to save
+                                has_changes = (
+                                    severity_level != st.session_state['original_severity'] or
+                                    likelihood_level != st.session_state['original_likelihood'] or
+                                    detectability_level != st.session_state['original_detectability'] or
+                                    st.session_state['abbyy_response'] == "Change" or
+                                    fh_response == "Unsure" or
+                                    len(change_notes.strip()) > 0
+                                )
                                 
-                        except Exception as e:
-                            st.error(f"Error saving changes: {e}")
-                            st.info("Please check your Airtable configuration and ensure API permissions are correct.")
+                                if has_changes:
+                                    # Create data dictionary using field IDs directly
+                                    data = {
+                                        "fldJwiM65ftTV4wA3": str(selected_risk_reference) if selected_risk_reference else "",  # Original Risk Reference
+                                        "fldMvXyJc8zCAHJJg": str(selected_fh_personnel) if selected_fh_personnel else "",  # FH Personnel
+                                        "fld6RKhK7kWfsJost": str(selected_abbyy_personnel) if selected_abbyy_personnel else "",  # ABBYY Personnel
+                                        "fldfTsmdEsXG2dcAo": "Todo",  # Status
+                                        "flde0fUGwJlykaRnM": str(risk_category) if risk_category else "",  # Risk Category
+                                        "fldYdVmw8pCKyRagq": str(risk_type_display) if risk_type_display else "",  # Risk Type
+                                        "fldrpv5xlWDVnIE5d": str(risk_description) if risk_description else "",  # Risk Description
+                                        "fldDmecXGLkpnK8lM": str(impact) if impact else "",  # Impact
+                                        "fldcXaPheiACBgbEv": str(root_causes) if root_causes else "",  # Root Causes
+                                        "fldqf7xmu3Z2EgTm0": str(components) if components else "",  # Components
+                                        "fldTr9bdRevGV7zyi": str(st.session_state.get('original_severity', default_severity)),  # Original Severity Level
+                                        "fldEYZSgQTr00GHf5": str(severity_level) if severity_level else "",  # New Severity Level
+                                        "fldUZEGlpdaMMGTC9": str(st.session_state.get('original_likelihood', default_likelihood)),  # Original Likelihood Level
+                                        "fld860nkAw1DUJaro": str(likelihood_level) if likelihood_level else "",  # New Likelihood Level
+                                        "fldXO1FfoUa89lnsA": str(st.session_state.get('original_detectability', default_detectability)),  # Original Detectability Level
+                                        "fld60ppjc9HEM8RPo": str(detectability_level) if detectability_level else "",  # New Detectability Level
+                                        "fldXsSjjUWPjRftIm": str(st.session_state.get('original_risk_level', "")),  # Original Overall Risk Level
+                                        "fldDJXURZKKyfz8pg": str(st.session_state.get('new_risk_level', "")),  # New Overall Risk Level
+                                        "fldQ66bxR2keyBdHm": str(st.session_state.get('abbyy_response', "")),  # ABBYY's Response
+                                        "fldj5ERls7Jsaq21H": str(fh_response) if fh_response else "",  # FH Response
+                                        "fldmpEa117ZHBlJAN": str(change_notes) if change_notes else ""  # Change Notes
+                                    }
+                                    
+                                    # Include risk score in change notes if calculated
+                                    if 'risk_score' in st.session_state and st.session_state['risk_score']:
+                                        risk_score = st.session_state['risk_score']
+                                        score_note = f"Risk Score: {risk_score}"
+                                        
+                                        # Append to existing notes or create new
+                                        if data["fldmpEa117ZHBlJAN"]:
+                                            data["fldmpEa117ZHBlJAN"] = data["fldmpEa117ZHBlJAN"] + "\n\n" + score_note
+                                        else:
+                                            data["fldmpEa117ZHBlJAN"] = score_note
+                                    
+                                    # Ensure all values are JSON-safe (no NaN values)
+                                    sanitized_data = {k: json_safe_value(v) for k, v in data.items()}
+                                    
+                                    # Debug information (only shown when debugging is enabled)
+                                    if show_debug:
+                                        st.write("Debug Information:")
+                                        st.write("Fields being sent to Airtable using field IDs:")
+                                        st.write(sanitized_data)
+                                    
+                                    try:
+                                        # Create a record in the Risk Changes table using field IDs
+                                        result = risk_changes_table.create(sanitized_data)
+                                        st.success("Changes saved successfully!")
+                                    except Exception as field_id_error:
+                                        st.error(f"Error saving with field IDs: {field_id_error}")
+                                        st.info("Trying alternative method with field names...")
+                                        
+                                        # Try with field names instead
+                                        try:
+                                            data_by_name = {
+                                                "Original Risk Reference": str(selected_risk_reference) if selected_risk_reference else "",
+                                                "FH Personnel": str(selected_fh_personnel) if selected_fh_personnel else "",
+                                                "ABBYY Personnel": str(selected_abbyy_personnel) if selected_abbyy_personnel else "",
+                                                "Status": "Todo",
+                                                "Risk Category": str(risk_category) if risk_category else "",
+                                                "Risk Type": str(risk_type_display) if risk_type_display else "",
+                                                "Risk Description": str(risk_description) if risk_description else "",
+                                                "Impact": str(impact) if impact else "",
+                                                "Root Causes": str(root_causes) if root_causes else "",
+                                                "Components": str(components) if components else "",
+                                                "Original Severity Level": str(st.session_state.get('original_severity', default_severity)),
+                                                "New Severity Level": str(severity_level) if severity_level else "",
+                                                "Original Likelihood Level": str(st.session_state.get('original_likelihood', default_likelihood)),
+                                                "New Likelihood Level": str(likelihood_level) if likelihood_level else "",
+                                                "Original Detectability Level": str(st.session_state.get('original_detectability', default_detectability)),
+                                                "New Detectability Level": str(detectability_level) if detectability_level else "",
+                                                "Original Overall Risk Level": str(st.session_state.get('original_risk_level', "")),
+                                                "New Overall Risk Level": str(st.session_state.get('new_risk_level', "")),
+                                                "ABBYY's Response": str(st.session_state.get('abbyy_response', "")),
+                                                "FH Response": str(fh_response) if fh_response else "",
+                                                "Change Notes": str(change_notes) if change_notes else ""
+                                            }
+                                            
+                                            # Ensure all values are JSON-safe (no NaN values)
+                                            sanitized_name_data = {k: json_safe_value(v) for k, v in data_by_name.items()}
+                                            
+                                            # Only show debug information if explicitly enabled
+                                            if show_debug:
+                                                st.write("Trying with field names:")
+                                                st.write(sanitized_name_data)
+                                                
+                                            result = risk_changes_table.create(sanitized_name_data)
+                                            st.success("Changes saved successfully with field names!")
+                                        except Exception as name_error:
+                                            st.error(f"Error saving with field names: {name_error}")
+                                            
+                                            # Try one more method: direct API call
+                                            try:
+                                                # Attempt direct API call to create record
+                                                api_response = requests.post(
+                                                    f"https://api.airtable.com/v0/{BASE_ID}/{RISK_CHANGES_TABLE_ID}",
+                                                    headers={
+                                                        "Authorization": f"Bearer {AIRTABLE_API_KEY}",
+                                                        "Content-Type": "application/json"
+                                                    },
+                                                    json={
+                                                        "records": [
+                                                            {
+                                                                "fields": sanitized_data
+                                                            }
+                                                        ]
+                                                    }
+                                                )
+                                                
+                                                # Only log API response details in debug mode
+                                                if show_debug:
+                                                    st.write(f"API Response: {api_response.status_code}")
+                                                    st.write(api_response.json())
+                                                    
+                                                if api_response.status_code in [200, 201]:
+                                                    st.success("Successfully saved using direct API call!")
+                                            except Exception as api_error:
+                                                st.error(f"Direct API call also failed: {api_error}")
+                                else:
+                                    st.info("No changes detected. Nothing was saved.")
+                                    
+                            except Exception as e:
+                                st.error(f"Error saving changes: {e}")
+                                st.info("Please check your Airtable configuration and ensure API permissions are correct.")
             else:
                 st.info("Please select a valid Risk Reference to load the risk details.")
         else:
