@@ -227,53 +227,55 @@ def load_risk_data():
     """Load risk data from Airtable and set up session state"""
     # Auto-connect to Airtable on app start
     if 'connected' not in st.session_state:
-        risk_register_table, risk_changes_table, risk_types_table = connect_to_airtable()
-        if risk_register_table:
-            st.session_state['risk_register_table'] = risk_register_table
-            st.session_state['risk_changes_table'] = risk_changes_table
-            st.session_state['risk_types_table'] = risk_types_table
-            st.session_state['connected'] = True
-            
-            # Cache the risk types for faster lookup
-            risk_types_dict = {}
-            if risk_types_table:
+        with st.spinner('Connecting to Airtable and loading data...'):
+            risk_register_table, risk_changes_table, risk_types_table = connect_to_airtable()
+            if risk_register_table:
+                st.session_state['risk_register_table'] = risk_register_table
+                st.session_state['risk_changes_table'] = risk_changes_table
+                st.session_state['risk_types_table'] = risk_types_table
+                st.session_state['connected'] = True
+                
+                # Cache the risk types for faster lookup
+                risk_types_dict = {}
+                if risk_types_table:
+                    try:
+                        risk_types_records = risk_types_table.all()
+                        for record in risk_types_records:
+                            record_id = record['id']
+                            type_name = record['fields'].get('Risk type', f"Unknown Type: {record_id}")
+                            risk_types_dict[record_id] = type_name
+                    except Exception as e:
+                        st.warning(f"Could not load risk types: {e}")
+                
+                st.session_state['risk_types_dict'] = risk_types_dict
+                
+                # Fetch risk register data
                 try:
-                    risk_types_records = risk_types_table.all()
-                    for record in risk_types_records:
-                        record_id = record['id']
-                        type_name = record['fields'].get('Risk type', f"Unknown Type: {record_id}")
-                        risk_types_dict[record_id] = type_name
+                    records = risk_register_table.all()
+                    st.sidebar.write(f"Found {len(records)} records")
+                    
+                    # Convert to DataFrame for easier manipulation
+                    records_df = pd.DataFrame([{**record['fields'], 'record_id': record['id']} for record in records])
+                    
+                    # Store in session state
+                    st.session_state['records_df'] = records_df
+                    
+                    st.success("Successfully connected to Airtable!")
                 except Exception as e:
-                    st.warning(f"Could not load risk types: {e}")
-            
-            st.session_state['risk_types_dict'] = risk_types_dict
-            
-            # Fetch risk register data
-            try:
-                records = risk_register_table.all()
-                st.sidebar.write(f"Found {len(records)} records")
-                
-                # Convert to DataFrame for easier manipulation
-                records_df = pd.DataFrame([{**record['fields'], 'record_id': record['id']} for record in records])
-                
-                # Store in session state
-                st.session_state['records_df'] = records_df
-                
-                st.success("Successfully connected to Airtable!")
-            except Exception as e:
-                st.error(f"Error retrieving data: {e}")
+                    st.error(f"Error retrieving data: {e}")
+                    st.session_state['connected'] = False
+                    st.session_state['records_df'] = None
+            else:
                 st.session_state['connected'] = False
                 st.session_state['records_df'] = None
-        else:
-            st.session_state['connected'] = False
-            st.session_state['records_df'] = None
     # Make sure records_df is initialized
     if 'records_df' not in st.session_state:
         st.session_state['records_df'] = None
 
 # Button to reconnect if needed
 if st.sidebar.button("Connect to Airtable"):
-    load_risk_data()
+    with st.spinner('Reconnecting to Airtable...'):
+        load_risk_data()
 
 # Load data on initial run
 load_risk_data()
@@ -289,25 +291,4 @@ with st.expander("Instructions"):
        - ABBYY Response: For ABBYY personnel to review and respond
        - FH Response: For FH personnel to review ABBYY responses and provide their input
     
-    3. On each page, select a Risk Reference, FH Personnel, and ABBYY Personnel from the dropdowns.
-    
-    **ABBYY Response Page:**
-    
-    4. Review the risk details.
-    
-    5. Choose ABBYY's Response (Accept or Change).
-    
-    6. If "Change" is selected, you can modify Severity, Likelihood, and Detectability values.
-    
-    7. Click "Save ABBYY Response" to save changes to the Risk Changes History table.
-    
-    **FH Response Page:**
-    
-    8. View the risk details and ABBYY's response/changes.
-    
-    9. Choose FH Response (Accept or Unsure).
-    
-    10. Add notes about the changes.
-    
-    11. Click "Save FH Response" to update the record in the Risk Changes History table.
     """)
