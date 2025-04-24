@@ -202,6 +202,33 @@ if records_df is not None and not records_df.empty:
             col1, col2 = st.columns(2)
             
             with col1:
+                # Process
+                process = ""
+                if 'Process' in filtered_record:
+                    process = app.clean_display_value(filtered_record['Process'])
+                elif 'fldogjZZsxB3oPcdv' in filtered_record:
+                    process = app.clean_display_value(filtered_record['fldogjZZsxB3oPcdv'])
+                
+                st.text_input("Process", value=process, disabled=True, key="process_abbyy")
+                
+                # Sub Process
+                sub_process = ""
+                if 'Sub Process' in filtered_record:
+                    sub_process = app.clean_display_value(filtered_record['Sub Process'])
+                elif 'fldtE2ABpfY7asfn5' in filtered_record:
+                    sub_process = app.clean_display_value(filtered_record['fldtE2ABpfY7asfn5'])
+                
+                st.text_input("Sub Process", value=sub_process, disabled=True, key="sub_process_abbyy")
+                
+                # Activity
+                activity = ""
+                if 'Activity' in filtered_record:
+                    activity = app.clean_display_value(filtered_record['Activity'])
+                elif 'fldkyb02e604tooNz' in filtered_record:
+                    activity = app.clean_display_value(filtered_record['fldkyb02e604tooNz'])
+                
+                st.text_input("Activity", value=activity, disabled=True, key="activity_abbyy")
+                
                 # Risk Type
                 st.text_input("Risk Type", value=risk_type_display, disabled=True, key="risk_type_abbyy")
                 
