@@ -30,7 +30,7 @@ st.write(f"Records found: {len(records_df) if records_df is not None else 'None'
 if records_df is not None and not records_df.empty:
     # Add filter section before risk selection
     st.write("### Filter Risks")
-    filter_col1, filter_col2 = st.columns(2)
+    filter_col1, filter_col2, filter_col3 = st.columns(3)  # Changed to 3 columns for the new filter
     
     with filter_col1:
         # Get unique "Who is responsible?" values
@@ -84,6 +84,16 @@ if records_df is not None and not records_df.empty:
             "Overall Risk Level",
             options=risk_level_options,
             key="filter_risk_level"
+        )
+    
+    with filter_col3:
+        # Add new filter for AI system reference
+        ai_system_options = ["All", "IDP", "Process AI", "Enterprise"]
+        selected_ai_system = st.selectbox(
+            "AI System Reference",
+            options=ai_system_options,
+            index=0,
+            key="filter_ai_system"
         )
     
     # Risk references - use whatever field has data
@@ -146,6 +156,35 @@ if records_df is not None and not records_df.empty:
                     filtered_records = filtered_records[level_mask]
             except Exception as e:
                 st.warning(f"Error filtering by risk level: {e}")
+    
+    # Apply filter for AI system reference (if not "All")
+    if selected_ai_system != "All":
+        # Find the appropriate column for AI system reference
+        ai_system_column = None
+        
+        # Look for the column with more flexible matching (handle trailing spaces)
+        for column in filtered_records.columns:
+            if column.strip() == 'AI, algorithmic or autonomous system reference /name' or column == 'fldB5EPuCN5A5pD4V':
+                ai_system_column = column
+                break
+        
+        if ai_system_column:
+            try:
+                # Filter by exact match for AI system
+                ai_system_mask = filtered_records[ai_system_column] == selected_ai_system
+                
+                # If no matches, try case-insensitive contains
+                if not ai_system_mask.any():
+                    ai_system_mask = filtered_records[ai_system_column].astype(str).str.contains(
+                        selected_ai_system, case=False, na=False
+                    )
+                
+                # Apply the filter
+                filtered_records = filtered_records[ai_system_mask]
+            except Exception as e:
+                st.warning(f"Error filtering by AI system: {e}")
+        else:
+            st.warning("AI system column not found. Please check column names in your Airtable.")
     
     # Try common fields for risk references from filtered records
     for field in ['fldvQEaSVFnK3tmAo', 'Risk reference', 'Risk Reference']:
@@ -376,6 +415,17 @@ if records_df is not None and not records_df.empty:
             # Store selection in session state
             st.session_state['abbyy_response'] = abbyy_response
 
+            # Add comment box if Change is selected
+            abbyy_comment = ""
+            if abbyy_response == "Change":
+                abbyy_comment = st.text_area(
+                    "ABBYY Change Comments", 
+                    value="", 
+                    height=100,
+                    key="abbyy_comment",
+                    help="Please provide your reasoning for the proposed changes"
+                )
+
             # Show editable fields only if "Change" is selected
             is_editable = (abbyy_response == "Change")
 
@@ -500,6 +550,7 @@ if records_df is not None and not records_df.empty:
                             "fldXsSjjUWPjRftIm": str(st.session_state.get('original_risk_level', overall_risk_level)),  # Original Overall Risk Level
                             "fldDJXURZKKyfz8pg": str(st.session_state.get('new_risk_level', "")),  # New Overall Risk Level
                             "fldQ66bxR2keyBdHm": str(abbyy_response),  # ABBYY's Response
+                            "fldv1dx6ISiPTrzx4": str(abbyy_comment) if abbyy_comment else "",  # ABBYY Comments
                         }
                         
                         # Ensure all values are JSON-safe (no NaN values)
@@ -530,6 +581,7 @@ if records_df is not None and not records_df.empty:
                                     "Risk Description": str(risk_description) if risk_description else "",
                                     "Impact": str(impact) if impact else "",
                                     "Root Causes": str(root_causes) if root_causes else "",
+                                    "Components": str(components) if components else "",
                                     "Original Severity Level": str(st.session_state.get('original_severity', severity_level)),
                                     "New Severity Level": str(severity_display) if abbyy_response == "Change" else "",
                                     "Original Likelihood Level": str(st.session_state.get('original_likelihood', likelihood_level)),
@@ -539,6 +591,7 @@ if records_df is not None and not records_df.empty:
                                     "Original Overall Risk Level": str(st.session_state.get('original_risk_level', overall_risk_level)),
                                     "New Overall Risk Level": str(st.session_state.get('new_risk_level', "")),
                                     "ABBYY's Response": str(abbyy_response),
+                                    "ABBYY Comments": str(abbyy_comment) if abbyy_comment else "",
                                 }
                                 
                                 # Ensure all values are JSON-safe
