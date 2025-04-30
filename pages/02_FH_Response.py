@@ -148,6 +148,18 @@ if records_df is not None and not records_df.empty:
         # Show ABBYY's response
         st.info(f"ABBYY's Response: **{abbyy_response}**")
         
+        # Get ABBYY's comments
+        abbyy_comments = ""
+        if 'ABBYY Comment' in abbyy_record_fields:
+            abbyy_comments = abbyy_record_fields['ABBYY Comment']
+        elif 'fldv1dx6ISiPTrzx4' in abbyy_record_fields:
+            abbyy_comments = abbyy_record_fields['fldv1dx6ISiPTrzx4']
+        
+        # Display ABBYY's comments if they exist
+        if abbyy_comments:
+            st.write("#### ABBYY Comments")
+            st.text_area("ABBYY provided the following comments:", value=abbyy_comments, height=100, disabled=True, key="abbyy_comments_view")
+        
         # If ABBYY selected "Change", show the changes
         if abbyy_response == "Change":
             st.write("#### Changes Made By ABBYY")
