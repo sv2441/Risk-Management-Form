@@ -66,20 +66,17 @@ if records_df is not None and not records_df.empty:
                     responsible_options = sorted(list(set([r for r in all_responsible if r])))
                     break
         
-        # Add "All" option at the beginning
-        responsible_options = ["All"] + responsible_options
-        
-        # Create single-select dropdown for responsible party
-        selected_responsible = st.selectbox(
+        # Create multiselect dropdown for responsible party instead of single-select
+        selected_responsible = st.multiselect(
             "Who is responsible?",
             options=responsible_options,
-            index=0,
+            default=[],
             key="filter_responsible"
         )
     
     with filter_col2:
         # Create multiselect for Overall Risk Level with predefined options
-        risk_level_options = ["3. Moderate", "4. High", "5. Severe"]
+        risk_level_options = ["3. Moderate", "4. High", "5. Critical"]
         selected_risk_levels = st.multiselect(
             "Overall Risk Level",
             options=risk_level_options,
@@ -100,8 +97,8 @@ if records_df is not None and not records_df.empty:
     risk_references = []
     filtered_records = records_df.copy()
     
-    # Apply filter for Who is responsible (if not "All")
-    if selected_responsible != "All":
+    # Apply filter for Who is responsible (if any selected)
+    if selected_responsible:
         # Find the appropriate column for Who is responsible
         responsible_column = None
         for column in ['fld6jqOm7dmjdXKRy', 'Who is responsible?', 'Who is responsible']:
@@ -111,24 +108,28 @@ if records_df is not None and not records_df.empty:
         
         if responsible_column:
             try:
-                # Filter records where the selected responsible party is present
+                # Filter records where any of the selected responsible parties are present
                 filtered_records_list = []
                 
                 for _, row in filtered_records.iterrows():
                     if responsible_column in row:
                         value = row[responsible_column]
                         # Handle different data formats
-                        if isinstance(value, list) and selected_responsible in value:
-                            filtered_records_list.append(row)
+                        if isinstance(value, list):
+                            if any(resp in value for resp in selected_responsible):
+                                filtered_records_list.append(row)
                         elif isinstance(value, str):
-                            if selected_responsible in value.replace('[', '').replace(']', '').replace('"', '').replace("'", ""):
+                            str_value = value.replace('[', '').replace(']', '').replace('"', '').replace("'", "")
+                            if any(resp in str_value for resp in selected_responsible):
                                 filtered_records_list.append(row)
                 
                 if filtered_records_list:
                     filtered_records = pd.DataFrame(filtered_records_list)
                 else:
                     # If no records found with this approach, try a broader match
-                    mask = filtered_records[responsible_column].astype(str).str.contains(selected_responsible, na=False)
+                    mask = pd.Series(False, index=filtered_records.index)
+                    for resp in selected_responsible:
+                        mask = mask | filtered_records[responsible_column].astype(str).str.contains(resp, na=False)
                     filtered_records = filtered_records[mask]
             except Exception as e:
                 st.warning(f"Error filtering by responsible party: {e}")
@@ -137,7 +138,7 @@ if records_df is not None and not records_df.empty:
     if selected_risk_levels:
         # Find the appropriate column for risk level
         risk_level_column = None
-        for column in ['fldJtc0r2NsqF5UPV', 'Overall Risk Level', 'Overall Risk Score']:
+        for column in ['fldJtc0r2NsqF5UPV', 'Overall Risk Level']:
             if column in filtered_records.columns:
                 risk_level_column = column
                 break
@@ -320,33 +321,6 @@ if records_df is not None and not records_df.empty:
             # Risk Assessment section
             st.write("### Risk Assessment")
 
-            # Comment out debug expander
-            # with st.expander("Debug - Raw Field Values"):
-            #     st.write("**Field IDs in record:**")
-            #     field_list = list(filtered_record.keys())
-            #     st.write(field_list)
-            #     
-            #     st.write("**Risk Assessment Field Contents:**")
-            #     # Check for Severity
-            #     for field in ['Severity', 'fld195IZccUi69V5D']:
-            #         if field in filtered_record:
-            #             st.write(f"{field}: {filtered_record[field]} (Type: {type(filtered_record[field])})")
-            #     
-            #     # Check for Likelihood
-            #     for field in ['Likelihood', 'fldhdlk8KsdWNqgff']:
-            #         if field in filtered_record:
-            #             st.write(f"{field}: {filtered_record[field]} (Type: {type(filtered_record[field])})")
-            #     
-            #     # Check for Detectability
-            #     for field in ['Detectability', 'fldfVsQ4b7qc8TAPP']:
-            #         if field in filtered_record:
-            #             st.write(f"{field}: {filtered_record[field]} (Type: {type(filtered_record[field])})")
-            #     
-            #     # Check for Overall Risk Level
-            #     for field in ['Overall Risk Level', 'Overall Risk Score', 'fldJtc0r2NsqF5UPV', 'fldqLmmgCcAioHTi4']:
-            #         if field in filtered_record:
-            #             st.write(f"{field}: {filtered_record[field]} (Type: {type(filtered_record[field])})")
-
             col1, col2, col3, col4 = st.columns(4)
 
             # Update options to match the actual format in the data
@@ -380,12 +354,8 @@ if records_df is not None and not records_df.empty:
 
             # Overall Risk Level
             overall_risk_level = None
-            if 'Overall Risk Level' in filtered_record:
-                overall_risk_level = filtered_record['Overall Risk Level']
-            elif 'Overall Risk Score' in filtered_record:
+            if 'Overall Risk Score' in filtered_record:
                 overall_risk_level = filtered_record['Overall Risk Score']
-            elif 'fldJtc0r2NsqF5UPV' in filtered_record:
-                overall_risk_level = filtered_record['fldJtc0r2NsqF5UPV']
             elif 'fldqLmmgCcAioHTi4' in filtered_record:
                 overall_risk_level = filtered_record['fldqLmmgCcAioHTi4']
 
@@ -398,6 +368,9 @@ if records_df is not None and not records_df.empty:
                 st.session_state['original_likelihood'] = likelihood_level
                 st.session_state['original_detectability'] = detectability_level
                 st.session_state['original_risk_level'] = overall_risk_level
+                
+                # Initialize flags to track if user has changed values
+                st.session_state['user_changed_values'] = False
 
             # Initialize ABBYY response
             if 'abbyy_response' not in st.session_state:
@@ -429,17 +402,49 @@ if records_df is not None and not records_df.empty:
             # Show editable fields only if "Change" is selected
             is_editable = (abbyy_response == "Change")
 
-            # Function to update risk level based on current selections
-            def update_risk_level():
+            # Function to track changes and update risk score
+            def on_value_change():
+                # Mark that user has changed values
+                st.session_state['user_changed_values'] = True
+                
+                # Get current dropdown values directly from session state
                 severity = st.session_state.get('severity_abbyy')
                 likelihood = st.session_state.get('likelihood_abbyy')
                 detectability = st.session_state.get('detectability_abbyy')
                 
                 # Only calculate if all values are available
                 if severity and likelihood and detectability:
-                    new_level, overall_score = app.calculate_risk_level(severity, likelihood, detectability)
+                    # Custom calculation per the specified formula
+                    # For Severity
+                    severity_value = 3 if severity == "1. High" else (2 if severity == "2. Medium" else 1)
+                    
+                    # For Likelihood
+                    likelihood_value = 3 if likelihood == "1. High" else (2 if likelihood == "2. Medium" else 1)
+                    
+                    # For Detectability (note inverse order!)
+                    detectability_value = 3 if detectability == "3. Low" else (2 if detectability == "2. Medium" else 1)
+                    
+                    # Calculate overall score
+                    overall_score = severity_value * likelihood_value * detectability_value
+                    
+                    # Determine risk level based on score
+                    if overall_score >= 27:
+                        new_level = "5. Critical"
+                    elif overall_score >= 18:
+                        new_level = "4. High"
+                    elif overall_score >= 8:
+                        new_level = "3. Moderate"
+                    elif overall_score >= 4:
+                        new_level = "2. Low"
+                    else:
+                        new_level = "1. Very Low"
+                    
+                    # Store results in session state
                     st.session_state['new_risk_level'] = new_level
                     st.session_state['risk_score'] = overall_score
+                    
+                    # Force a rerun to update the display
+                    st.rerun()
 
             with col1:
                 # Severity
@@ -450,7 +455,7 @@ if records_df is not None and not records_df.empty:
                     index=severity_index,
                     key="severity_abbyy",
                     disabled=not is_editable,
-                    on_change=update_risk_level if is_editable else None
+                    on_change=on_value_change if is_editable else None
                 )
 
             with col2:
@@ -462,7 +467,7 @@ if records_df is not None and not records_df.empty:
                     index=likelihood_index,
                     key="likelihood_abbyy",
                     disabled=not is_editable,
-                    on_change=update_risk_level if is_editable else None
+                    on_change=on_value_change if is_editable else None
                 )
 
             with col3:
@@ -474,41 +479,116 @@ if records_df is not None and not records_df.empty:
                     index=detectability_index,
                     key="detectability_abbyy",
                     disabled=not is_editable,
-                    on_change=update_risk_level if is_editable else None
+                    on_change=on_value_change if is_editable else None
                 )
 
             with col4:
-                # Calculate and display risk level
+                # Display risk score
                 if is_editable:
-                    # Get current values
-                    severity = st.session_state.get('severity_abbyy')
-                    likelihood = st.session_state.get('likelihood_abbyy')
-                    detectability = st.session_state.get('detectability_abbyy')
-                    
-                    # Calculate new risk level only if all values are present
-                    if severity and likelihood and detectability:
-                        new_level, overall_score = app.calculate_risk_level(severity, likelihood, detectability)
+                    # Check if the user has changed any values
+                    if st.session_state.get('user_changed_values', False):
+                        # User has made changes, show the new calculated risk score
+                        new_level = st.session_state.get('new_risk_level')
+                        overall_score = st.session_state.get('risk_score')
                         
-                        # Update session state
-                        st.session_state['new_risk_level'] = new_level
-                        st.session_state['risk_score'] = overall_score
-                        
-                        # Display the result
-                        st.text_input("Overall Risk Level", 
-                                    value=f"{new_level} (Score: {overall_score})", 
-                                    disabled=True,
-                                    key="risk_level_abbyy")
+                        if new_level and overall_score:
+                            risk_display = f"{new_level} (Score: {overall_score})"
+                        else:
+                            # Calculate right here instead of using app.calculate_risk_level
+                            severity = st.session_state.get('severity_abbyy')
+                            likelihood = st.session_state.get('likelihood_abbyy')
+                            detectability = st.session_state.get('detectability_abbyy')
+                            
+                            if severity and likelihood and detectability:
+                                # For Severity
+                                severity_value = 3 if severity == "1. High" else (2 if severity == "2. Medium" else 1)
+                                
+                                # For Likelihood
+                                likelihood_value = 3 if likelihood == "1. High" else (2 if likelihood == "2. Medium" else 1)
+                                
+                                # For Detectability (note inverse order!)
+                                detectability_value = 3 if detectability == "3. Low" else (2 if detectability == "2. Medium" else 1)
+                                
+                                # Calculate overall score
+                                overall_score = severity_value * likelihood_value * detectability_value
+                                
+                                # Determine risk level based on score
+                                if overall_score >= 27:
+                                    new_level = "5. Critical"
+                                elif overall_score >= 18:
+                                    new_level = "4. High"
+                                elif overall_score >= 8:
+                                    new_level = "3. Moderate"
+                                elif overall_score >= 4:
+                                    new_level = "2. Low"
+                                else:
+                                    new_level = "1. Very Low"
+                                
+                                st.session_state['new_risk_level'] = new_level
+                                st.session_state['risk_score'] = overall_score
+                                risk_display = f"{new_level} (Score: {overall_score})"
+                            else:
+                                risk_display = "Incomplete data"
                     else:
-                        st.text_input("Overall Risk Level", 
-                                    value="Incomplete data", 
-                                    disabled=True,
-                                    key="risk_level_incomplete")
-                else:
-                    # Show original risk level when not in edit mode
-                    st.text_input("Overall Risk Level", 
-                                value=str(st.session_state.get('original_risk_level', "")), 
+                        # No changes yet, so show the original risk score
+                        original_risk_level = st.session_state.get('original_risk_level', "")
+                        
+                        # Format for display - same formatting function as in non-editable mode
+                        risk_display = ""
+                        if original_risk_level:
+                            try:
+                                if isinstance(original_risk_level, (int, float)) or (isinstance(original_risk_level, str) and original_risk_level.replace('.', '', 1).isdigit()):
+                                    score = float(original_risk_level)
+                                    if score >= 27:
+                                        risk_display = "5. Critical (Score: {})".format(score)
+                                    elif score >= 18:
+                                        risk_display = "4. High (Score: {})".format(score)
+                                    elif score >= 8:
+                                        risk_display = "3. Moderate (Score: {})".format(score)
+                                    elif score >= 4:
+                                        risk_display = "2. Low (Score: {})".format(score)
+                                    else:
+                                        risk_display = "1. Very Low (Score: {})".format(score)
+                                else:
+                                    risk_display = str(original_risk_level)
+                            except:
+                                risk_display = str(original_risk_level)
+                        else:
+                            risk_display = "No original risk score found"
+                    
+                    st.text_input("Overall Risk Score", 
+                                value=risk_display, 
                                 disabled=True,
-                                key="original_risk_level_abbyy")
+                                key="risk_score_abbyy")
+                else:
+                    # Show original risk score when not in edit mode
+                    original_risk_level = st.session_state.get('original_risk_level', "")
+                    
+                    # Format for display
+                    risk_level_display = ""
+                    if original_risk_level:
+                        try:
+                            if isinstance(original_risk_level, (int, float)) or (isinstance(original_risk_level, str) and original_risk_level.replace('.', '', 1).isdigit()):
+                                score = float(original_risk_level)
+                                if score >= 27:
+                                    risk_level_display = "5. Critical (Score: {})".format(score)
+                                elif score >= 18:
+                                    risk_level_display = "4. High (Score: {})".format(score)
+                                elif score >= 8:
+                                    risk_level_display = "3. Moderate (Score: {})".format(score)
+                                elif score >= 4:
+                                    risk_level_display = "2. Low (Score: {})".format(score)
+                                else:
+                                    risk_level_display = "1. Very Low (Score: {})".format(score)
+                            else:
+                                risk_level_display = str(original_risk_level)
+                        except:
+                            risk_level_display = str(original_risk_level)
+                    
+                    st.text_input("Overall Risk Score", 
+                                value=risk_level_display, 
+                                disabled=True,
+                                key="original_risk_score_abbyy")
             
             # Save button
             if st.button("Save ABBYY Response"):
@@ -529,6 +609,34 @@ if records_df is not None and not records_df.empty:
                     )
                     
                     if abbyy_response == "Accept" or has_changes:
+                        # Get just the risk level name (without the score part)
+                        new_risk_level = st.session_state.get('new_risk_level', "")
+                        
+                        # Format the original risk level to show just the level name
+                        original_risk_display = ""
+                        original_risk_level = st.session_state.get('original_risk_level', "")
+                        
+                        if original_risk_level:
+                            try:
+                                # If it's a numeric score, convert to level name
+                                if isinstance(original_risk_level, (int, float)) or (isinstance(original_risk_level, str) and original_risk_level.replace('.', '', 1).isdigit()):
+                                    score = float(original_risk_level)
+                                    if score >= 27:
+                                        original_risk_display = "5. Critical"
+                                    elif score >= 18:
+                                        original_risk_display = "4. High"
+                                    elif score >= 8:
+                                        original_risk_display = "3. Moderate"
+                                    elif score >= 4:
+                                        original_risk_display = "2. Low"
+                                    else:
+                                        original_risk_display = "1. Very Low"
+                                else:
+                                    # If it's already a text format, use it directly
+                                    original_risk_display = str(original_risk_level)
+                            except:
+                                original_risk_display = str(original_risk_level)
+                        
                         # Create data dictionary using field IDs directly
                         data = {
                             "fldJwiM65ftTV4wA3": str(selected_risk_reference) if selected_risk_reference else "",  # Original Risk Reference
@@ -547,8 +655,8 @@ if records_df is not None and not records_df.empty:
                             "fld860nkAw1DUJaro": str(likelihood_display) if abbyy_response == "Change" else "",  # New Likelihood Level
                             "fldXO1FfoUa89lnsA": str(st.session_state.get('original_detectability', detectability_level)),  # Original Detectability Level
                             "fld60ppjc9HEM8RPo": str(detectability_display) if abbyy_response == "Change" else "",  # New Detectability Level
-                            "fldXsSjjUWPjRftIm": str(st.session_state.get('original_risk_level', overall_risk_level)),  # Original Overall Risk Level
-                            "fldDJXURZKKyfz8pg": str(st.session_state.get('new_risk_level', "")),  # New Overall Risk Level
+                            "fldXsSjjUWPjRftIm": original_risk_display,  # Original Overall Risk Level
+                            "fldDJXURZKKyfz8pg": new_risk_level if abbyy_response == "Change" else "",  # New Overall Risk Level
                             "fldQ66bxR2keyBdHm": str(abbyy_response),  # ABBYY's Response
                             "fldv1dx6ISiPTrzx4": str(abbyy_comment) if abbyy_comment else "",  # ABBYY Comments
                         }
