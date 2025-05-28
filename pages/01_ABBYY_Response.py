@@ -637,14 +637,24 @@ if records_df is not None and not records_df.empty:
                             except:
                                 original_risk_display = str(original_risk_level)
                         
+                        # Handle linked record fields properly - get record IDs instead of display values
+                        # For Risk Type, use the record IDs if available
+                        risk_type_value = ""
+                        if risk_type_ids:
+                            # If we have record IDs, use them as an array
+                            risk_type_value = risk_type_ids
+                        else:
+                            # Fallback to display text if no IDs available
+                            risk_type_value = str(risk_type_display) if risk_type_display else ""
+                        
                         # Create data dictionary using field IDs directly
                         data = {
-                            "fldJwiM65ftTV4wA3": str(selected_risk_reference) if selected_risk_reference else "",  # Original Risk Reference
+                            "fldJwiM65ftTV4wA3": str(selected_risk_reference) if selected_risk_reference else "",  # Original Risk Reference - TEXT FIELD, use string
                             "fldMvXyJc8zCAHJJg": str(selected_fh_personnel) if selected_fh_personnel else "",  # FH Personnel
                             "fld6RKhK7kWfsJost": str(selected_abbyy_personnel) if selected_abbyy_personnel else "",  # ABBYY Personnel
                             "fldfTsmdEsXG2dcAo": "Todo",  # Status
-                            "flde0fUGwJlykaRnM": str(risk_category) if risk_category else "",  # Risk Category
-                            "fldYdVmw8pCKyRagq": str(risk_type_display) if risk_type_display else "",  # Risk Type
+                            "flde0fUGwJlykaRnM": str(risk_category) if risk_category else "",  # Risk Category - text field
+                            "fldYdVmw8pCKyRagq": risk_type_value,  # Risk Type - handle as linked record if IDs available
                             "fldrpv5xlWDVnIE5d": str(risk_description) if risk_description else "",  # Risk Description
                             "fldDmecXGLkpnK8lM": str(impact) if impact else "",  # Impact
                             "fldcXaPheiACBgbEv": str(root_causes) if root_causes else "",  # Root Causes
@@ -667,91 +677,19 @@ if records_df is not None and not records_df.empty:
                         try:
                             # Create a record in the Risk Changes table
                             result = risk_changes_table.create(sanitized_data)
-                            st.success("ABBYY response saved successfully!")
+                            st.success("✅ ABBYY response saved successfully!")
                             
                             # Store the created record ID in session state for FH page to reference
                             st.session_state[f"risk_changes_id_{record_id}"] = result['id']
                             
-                        except Exception as field_id_error:
-                            st.error(f"Error saving with field IDs: {field_id_error}")
-                            st.info("Trying alternative method with field names...")
+                        except Exception as e:
+                            st.error(f"Error saving response: {e}")
                             
-                            # Try with field names instead
-                            try:
-                                # Create data dictionary using field names
-                                data_by_name = {
-                                    "Original Risk Reference": str(selected_risk_reference) if selected_risk_reference else "",
-                                    "FH Personnel": str(selected_fh_personnel) if selected_fh_personnel else "",
-                                    "ABBYY Personnel": str(selected_abbyy_personnel) if selected_abbyy_personnel else "",
-                                    "Status": "Todo",
-                                    "Risk Category": str(risk_category) if risk_category else "",
-                                    "Risk Type": str(risk_type_display) if risk_type_display else "",
-                                    "Risk Description": str(risk_description) if risk_description else "",
-                                    "Impact": str(impact) if impact else "",
-                                    "Root Causes": str(root_causes) if root_causes else "",
-                                    "Components": str(components) if components else "",
-                                    "Original Severity Level": str(st.session_state.get('original_severity', severity_level)),
-                                    "New Severity Level": str(severity_display) if abbyy_response == "Change" else "",
-                                    "Original Likelihood Level": str(st.session_state.get('original_likelihood', likelihood_level)),
-                                    "New Likelihood Level": str(likelihood_display) if abbyy_response == "Change" else "",
-                                    "Original Detectability Level": str(st.session_state.get('original_detectability', detectability_level)),
-                                    "New Detectability Level": str(detectability_display) if abbyy_response == "Change" else "",
-                                    "Original Overall Risk Level": str(st.session_state.get('original_risk_level', overall_risk_level)),
-                                    "New Overall Risk Level": str(st.session_state.get('new_risk_level', "")),
-                                    "ABBYY's Response": str(abbyy_response),
-                                    "ABBYY Comments": str(abbyy_comment) if abbyy_comment else "",
-                                }
-                                
-                                # Ensure all values are JSON-safe
-                                sanitized_name_data = {k: app.json_safe_value(v) for k, v in data_by_name.items()}
-                                
-                                result = risk_changes_table.create(sanitized_name_data)
-                                st.success("ABBYY response saved successfully with field names!")
-                                
-                                # Store the created record ID
-                                st.session_state[f"risk_changes_id_{record_id}"] = result['id']
-                                
-                            except Exception as name_error:
-                                st.error(f"Error saving with field names: {name_error}")
-                                
-                                # Try direct API call as last resort
-                                try:
-                                    api_response = requests.post(
-                                        f"https://api.airtable.com/v0/{app.BASE_ID}/{app.RISK_CHANGES_TABLE_ID}",
-                                        headers={
-                                            "Authorization": f"Bearer {app.AIRTABLE_API_KEY}",
-                                            "Content-Type": "application/json"
-                                        },
-                                        json={
-                                            "records": [
-                                                {
-                                                    "fields": sanitized_data
-                                                }
-                                            ]
-                                        }
-                                    )
-                                    
-                                    if api_response.status_code in [200, 201]:
-                                        st.success("Successfully saved using direct API call!")
-                                        
-                                        # Try to get the record ID from the response
-                                        try:
-                                            response_data = api_response.json()
-                                            if 'records' in response_data and len(response_data['records']) > 0:
-                                                st.session_state[f"risk_changes_id_{record_id}"] = response_data['records'][0]['id']
-                                        except:
-                                            pass
-                                    else:
-                                        st.error(f"API error: {api_response.status_code}")
-                                        if app.show_debug:
-                                            st.write(api_response.json())
-                                except Exception as api_error:
-                                    st.error(f"Direct API call failed: {api_error}")
                     else:
                         st.info("No changes detected. Nothing was saved.")
+                        
                 except Exception as e:
-                    st.error(f"Error saving changes: {e}")
-                    st.info("Please check your Airtable configuration.")
+                    st.error(f"Unexpected error: {e}")
     else:
         st.info("Please select a valid Risk Reference to load the risk details.")
 else:
